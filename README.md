@@ -22,7 +22,25 @@ Then edit `.env`:
 | `HOST_PORT` | Port on the host that serves the app | `8080` |
 | `CONTAINER_NAME` | Docker container name | `night-routine` |
 
-The default task list is in `public/index.html` (`DEFAULT`). It's only used until you save your own list from the Admin page, which is stored on the server.
+### Your task list
+
+A new install starts with a generic example routine: Homework (Mon–Thu), Reading, Snack, Bath, Pajamas, Brush teeth, Floss and Story time. Change it on the **Admin** page (`#admin`). Your list is stored on the server, so this default only matters the first time.
+
+In Admin, **Backup & share** lets you **Export** the list to a `.json` file and **Import** one (or paste JSON). Use it for backups, a second install, or sharing a routine. Imported lists load into the editor; nothing changes until you tap **Save**. File format:
+
+```json
+{
+  "format": "night-routine-tasks",
+  "version": 1,
+  "tasks": [
+    { "name": "Homework", "minutes": 30, "days": ["Mon", "Tue", "Wed", "Thu"] },
+    { "name": "Reading",  "minutes": 20, "days": "every day" },
+    { "name": "Piano",    "minutes": 15, "days": ["Tue", "Thu"], "from": "2027-01-04", "until": "2027-06-18" }
+  ]
+}
+```
+
+`days` is `"every day"` or a list of day names. `from` and `until` are optional dates (YYYY-MM-DD). Keep personal lists out of the repo.
 
 ## Deploy with Docker (example: Synology)
 

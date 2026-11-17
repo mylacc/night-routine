@@ -131,6 +131,7 @@ details.hrow summary::-webkit-details-marker{display:none}
 .hrow td:last-child{text-align:right}
 .hrow td.over{color:var(--warn)}
 .empty{color:var(--muted);padding:20px 0}
+#adJson{width:100%;min-height:220px;margin-top:10px;background:var(--bg);border:1px solid var(--line);color:var(--text);border-radius:12px;padding:12px;font:13px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;resize:vertical}
 .sheet-back{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:20;display:flex;align-items:flex-end;justify-content:center}
 .sheet-back[hidden]{display:none}
 .sheet{background:var(--card);width:100%;max-width:560px;max-height:92vh;overflow:auto;border-radius:22px 22px 0 0;padding:18px 16px calc(env(safe-area-inset-bottom) + 16px);border-top:1px solid var(--line)}
@@ -295,7 +296,17 @@ body:not([data-view=timer]) .v-timer{display:none}
     <div class="btnrow" style="margin-top:6px"><button id="adAdd">+ Add task</button></div>
     <div class="btnrow"><button id="adCancel">Discard changes</button><button class="primary" id="adSave">Save</button></div>
     <div class="hint" id="adHint"></div>
-    <div class="btnrow" style="margin-top:28px"><button id="adDefault" style="font-size:15px">Restore original list</button></div>
+    <div class="label" style="margin-top:30px">Backup &amp; share</div>
+    <div class="info" style="margin-top:6px">Export saves the list shown above as a .json file. Import loads a list into this page; check it, then tap Save.</div>
+    <div class="btnrow" style="margin-top:8px"><button id="adExport" style="font-size:15px">⬇ Export list</button><button id="adImport" style="font-size:15px">⬆ Import file</button></div>
+    <div class="btnrow" style="margin-top:8px"><button id="adPasteBtn" style="font-size:15px">Paste JSON instead</button></div>
+    <input type="file" id="adImportFile" accept=".json,application/json,text/plain" hidden>
+    <div id="adJsonBox" hidden>
+      <textarea id="adJson" spellcheck="false" autocomplete="off" aria-label="Task list JSON"></textarea>
+      <div class="btnrow" style="margin-top:8px"><button id="adCopy" style="font-size:15px">Copy</button><button id="adLoadPaste" class="primary" style="font-size:15px">Load this list</button></div>
+    </div>
+    <div class="hint" id="adIoHint"></div>
+    <div class="btnrow" style="margin-top:22px"><button id="adDefault" style="font-size:15px">Restore default list</button></div>
   </div>
 </section>
 
@@ -314,7 +325,7 @@ body:not([data-view=timer]) .v-timer{display:none}
 const $=id=>document.getElementById(id),$$=sel=>document.querySelectorAll(sel);
 const API="api/state", EVENTS="api/events";
 const ALL=[0,1,2,3,4,5,6], MON_THU=[1,2,3,4];
-const DEFAULT=[["Reading",40],["Reading log",10],["Math",15,MON_THU],["Dessert",15],["Spelling",15,MON_THU],["Fluency",5,MON_THU],["Teeth brush",3],["Floss",1],["Swish",1],["Bathroom",5],["Shower",5],["PJs",3]];
+const DEFAULT=[["Homework",30,MON_THU],["Reading",20],["Snack",10],["Bath / shower",10],["Pajamas",5],["Brush teeth",3],["Floss",1],["Story time",10]];
 const DOW=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 const DOW2=["Su","Mo","Tu","We","Th","Fr","Sa"];
 const MIN=60000, NIGHT_SHIFT=4*3600e3, STALE=12*3600e3; // before 4 AM still counts as the previous night
@@ -974,7 +985,7 @@ function openAdmin(){
   const r=getRun(),rn=$("adRunNote");
   if(r&&!r.finishedAt){rn.hidden=false;rn.textContent="Tonight's run is in progress. It keeps its current list; changes you save here start with the next night."}
   else rn.hidden=true;
-  $("adHint").textContent="";
+  $("adHint").textContent="";$("adIoHint").textContent="";$("adJsonBox").hidden=true;
   renderAdmin();
 }
 function onAdminField(e){
@@ -1002,7 +1013,74 @@ $("adAdd").addEventListener("click",()=>{
 function closePanel(){if(location.hash)location.hash="";route()}
 $("adCancel").addEventListener("click",closePanel);
 $("adClose").addEventListener("click",closePanel);
-twoTap($("adDefault"),"Restore original list","Tap again to restore",()=>{draft=defaultConfig();renderAdmin();$("adHint").textContent="Original list restored. Tap Save to keep it."});
+twoTap($("adDefault"),"Restore default list","Tap again to restore",()=>{draft=defaultConfig();renderAdmin();$("adHint").textContent="Default list restored. Tap Save to keep it."});
+
+/* ---------- admin: export / import ----------
+   File format: {"format":"night-routine-tasks","version":1,"tasks":[{"name":"Math","minutes":15,"days":["Mon","Tue","Wed","Thu"],"from":"2026-12-01","until":"2027-06-15"}]}
+   "days" may be "every day" or a list of day names (Sun..Sat) or numbers 0-6. "from"/"until" are optional YYYY-MM-DD. */
+const DAYN=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+function exportJSON(cfg){
+  return JSON.stringify({format:"night-routine-tasks",version:1,tasks:cfg.tasks.map(t=>{
+    const o={name:t.name,minutes:t.min,days:t.days.length===7?"every day":t.days.map(d=>DAYN[d])};
+    if(t.from)o.from=t.from;if(t.until)o.until=t.until;return o;
+  })},null,2)+"\n";
+}
+function parseDay(d){
+  if(typeof d==="number"&&d>=0&&d<=6&&d===Math.floor(d))return d;
+  const i=["sun","mon","tue","wed","thu","fri","sat"].indexOf(String(d).trim().slice(0,3).toLowerCase());
+  if(i<0)throw new Error("Unknown day “"+d+"”");
+  return i;
+}
+function parseImport(text){
+  let j;try{j=JSON.parse(text)}catch(e){throw new Error("That isn't valid JSON.")}
+  const arr=Array.isArray(j)?j:(j&&Array.isArray(j.tasks)?j.tasks:null);
+  if(!arr)throw new Error("Expected a list of tasks: {\"tasks\": [ ... ]}");
+  if(!arr.length)throw new Error("The list has no tasks.");
+  const isDate=v=>v==null||v===""||/^\d{4}-\d{2}-\d{2}$/.test(v);
+  return arr.map((t,i)=>{
+    const where="Task "+(i+1);
+    if(!t||typeof t!=="object")throw new Error(where+" isn't an object.");
+    const name=String(t.name==null?"":t.name).trim();if(!name)throw new Error(where+" has no name.");
+    const min=Number(t.minutes!=null?t.minutes:t.min);
+    if(!isFinite(min)||min<0||min>600)throw new Error("“"+name+"”: minutes must be 0–600.");
+    let days=t.days;
+    if(days==null||/^(every ?day|daily|all)$/i.test(String(days)))days=ALL.slice();
+    else if(Array.isArray(days))days=[...new Set(days.map(parseDay))].sort((a,b)=>a-b);
+    else throw new Error("“"+name+"”: days must be \"every day\" or a list like [\"Mon\",\"Tue\"].");
+    if(!isDate(t.from)||!isDate(t.until))throw new Error("“"+name+"”: dates must look like 2026-12-31.");
+    return{id:newId(),name,min:Math.round(min),days,from:t.from||"",until:t.until||""};
+  });
+}
+function ioHint(msg){$("adIoHint").textContent=msg}
+function loadImported(text){
+  try{
+    const tasks=parseImport(text);draft={updatedAt:Date.now(),tasks};renderAdmin();
+    const m="Loaded "+tasks.length+" tasks. Check them, then tap Save.";$("adHint").textContent=m;ioHint(m);
+  }catch(e){ioHint(e.message)}
+}
+$("adExport").addEventListener("click",()=>{
+  const json=exportJSON(draft);
+  $("adJson").value=json;$("adJsonBox").hidden=false;
+  try{
+    const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([json],{type:"application/json"}));
+    a.download="night-routine-tasks-"+isoOf(new Date())+".json";document.body.appendChild(a);a.click();
+    setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},1000);
+    ioHint("Downloaded. The same JSON is in the box below if you'd rather copy it.");
+  }catch(e){ioHint("Copy the JSON from the box below.")}
+});
+$("adImport").addEventListener("click",()=>{$("adImportFile").value="";$("adImportFile").click()});
+$("adImportFile").addEventListener("change",e=>{
+  const f=e.target.files&&e.target.files[0];if(!f)return;
+  if(f.size>500000){ioHint("That file is too big to be a task list.");return}
+  f.text().then(loadImported,()=>ioHint("Couldn't read that file."));
+});
+$("adPasteBtn").addEventListener("click",()=>{$("adJsonBox").hidden=false;$("adJson").value="";$("adJson").focus();ioHint("Paste a task list, then tap Load this list.")});
+$("adLoadPaste").addEventListener("click",()=>loadImported($("adJson").value));
+$("adCopy").addEventListener("click",()=>{
+  const v=$("adJson").value;
+  if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(v).then(()=>ioHint("Copied."),()=>{$("adJson").select();ioHint("Select all and copy.")});
+  else{$("adJson").select();ioHint("Select all and copy.")}
+});
 $("adSave").addEventListener("click",()=>{
   const bad=draft.tasks.find(t=>t.from&&t.until&&t.until<t.from);
   if(bad){$("adHint").textContent="“"+(bad.name||"Untitled")+"”: Until is before From.";return}
