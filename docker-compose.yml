@@ -1,0 +1,15 @@
+# Personal values (title, port, container name) live in .env next to this file.
+# Copy .env.example to .env and edit it; compose reads it automatically.
+services:
+  app:
+    build: .
+    image: night-routine:local
+    container_name: ${CONTAINER_NAME:-night-routine}
+    restart: unless-stopped
+    ports:
+      - "${HOST_PORT:-8080}:8080"
+    environment:
+      APP_TITLE: "${APP_TITLE:-Homework & bedtime routine}"
+      APP_SHORT_NAME: "${APP_SHORT_NAME:-Night Routine}"
+    volumes:
+      - ./data:/data
